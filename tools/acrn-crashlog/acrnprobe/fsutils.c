@@ -682,3 +682,497 @@ int file_update_int(const char *filename, unsigned int current,
 	/* Close file */
 	return close_file(filename, fp);
 }
+
+static ssize_t do_read(int fd, void *buf, size_t len)
+{
+	ssize_t nr;
+
+	while (1) {
+		nr = read(fd, buf, len);
+		if ((nr < 0) && (errno == EAGAIN || errno == EINTR))
+			continue;
+		return nr;
+	}
+}
+
+static ssize_t do_write(int fd, const void *buf, size_t len)
+{
+	ssize_t nr;
+
+	while (1) {
+		nr = write(fd, buf, len);
+		if ((nr < 0) && (errno == EAGAIN || errno == EINTR))
+			continue;
+		else if (nr < 0)
+			return -errno;
+		return nr;
+	}
+}
+
+/**
+ * Copy file in a read/write loop.
+ *
+ * @param src Path of source file.
+ * @param dest Path of destin file.
+ *
+ * @return 0 if successful, or a negative value if not.
+ */
+int do_copy_eof(const char *src, const char *des)
+{
+	char buffer[CPBUFFERSIZE];
+	int rc = 0;
+	int fd1 = -1, fd2 = -1;
+	struct stat info;
+	int r_count, w_count = 0;
+
+	if (src == NULL || des == NULL)
+		return -EINVAL;
+
+	if (stat(src, &info) < 0) {
+		LOGE("can not open file: %s\n", src);
+		return -errno;
+	}
+
+	fd1 = open(src, O_RDONLY);
+	if (fd1 < 0)
+		return -errno;
+
+	fd2 = open(des, O_WRONLY | O_CREAT | O_TRUNC, 0660);
+	if (fd2 < 0) {
+		LOGE("can not open file: %s\n", des);
+		close(fd1);
+		return -errno;
+	}
+
+	/* Start copy loop */
+	while (1) {
+		/* Read data from src */
+		r_count = do_read(fd1, buffer, CPBUFFERSIZE);
+		if (r_count < 0) {
+			LOGE("read failed, err:%s\n", strerror(errno));
+			rc = -1;
+			break;
+		}
+
+		if (r_count == 0)
+			break;
+
+		/* Copy data to des */
+		w_count = do_write(fd2, buffer, r_count);
+		if (w_count < 0) {
+			LOGE("write failed, err:%s\n", strerror(errno));
+			rc = -1;
+			break;
+		}
+		if (r_count != w_count) {
+			LOGE("write failed, r_count:%d w_count:%d\n",
+			     r_count, w_count);
+			rc = -1;
+			break;
+		}
+	}
+
+	if (fd1 >= 0)
+		close(fd1);
+	if (fd2 >= 0)
+		close(fd2);
+
+	return rc;
+}
+
+/**
+ * Check the storage space.
+ *
+ * @return 1 if the percentage of using space is lower than the configuration.
+ *         or 0 if not.
+ */
+int space_available(void)
+{
+	struct sender_t *crashlog;
+	struct statfs diskInfo;
+	unsigned long long totalBlocks;
+	unsigned long long totalSize;
+	unsigned long long freeDisk;
+	int mbTotalsize;
+	int mbFreedisk;
+	int quota;
+	int ret;
+
+	crashlog = get_sender_by_name("crashlog");
+	if (!crashlog)
+		return 0;
+
+	quota = atoi(crashlog->spacequota);
+	ret = statfs(crashlog->outdir, &diskInfo);
+	if (ret < 0) {
+		LOGE("statfs (%s) failed, error (%s)\n", crashlog->outdir,
+		     strerror(errno));
+		return 0;
+	}
+	totalBlocks = diskInfo.f_bsize;
+	totalSize = totalBlocks * diskInfo.f_blocks;
+	freeDisk = diskInfo.f_bfree * totalBlocks;
+	mbTotalsize = totalSize >> 20;
+	mbFreedisk = freeDisk >> 20;
+	if ((float)mbFreedisk / (float)mbTotalsize >
+	    1 - ((float)quota / (float)100))
+		return 1;
+
+	LOGE("space meet quota[%d] total=%dMB, free=%dMB\n", quota,
+	     mbTotalsize, mbFreedisk);
+	return 0;
+}
+
+/**
+ * Count file lines.
+ *
+ * @param filename Path of file to count lines.
+ *
+ * @return lines of file is successful, or a negative errno-style value if not.
+ */
+int count_lines_in_file(const char *filename)
+{
+	struct mm_file_t *f;
+	int ret;
+
+	f = mmap_file(filename);
+	if (!f)
+		return -errno;
+
+	ret = mm_count_lines(f);
+
+	unmap_file(f);
+
+	return ret;
+}
+
+/**
+ * Read binary file.
+ *
+ * @param path File path to read.
+ * @param[out] File size being read.
+ * @param[out] data File content.
+ *
+ * @return 0 if successful, or -1 if not.
+ */
+int read_full_binary_file(const char *path, unsigned long *size, void **data)
+{
+	FILE *f;
+	long _size;
+	void *buf;
+	int err;
+
+	if (!path || !data || !size) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	f = fopen(path, "rb");
+	if (!f)
+		return -1;
+
+	if (fseek(f, 0, SEEK_END) == -1) {
+		err = errno;
+		goto close;
+	}
+
+	_size = ftell(f);
+	if (_size == -1) {
+		err = errno;
+		goto close;
+	} else if (!_size) {
+		err = ERANGE;
+		goto close;
+	}
+
+	if (fseek(f, 0, SEEK_SET) == -1) {
+		err = errno;
+		goto close;
+	}
+
+	buf = malloc(_size + 10);
+	if (!buf) {
+		err = ENOMEM;
+		goto close;
+	}
+
+	memset(buf, 0, _size + 10);
+	if (fread(buf, 1, _size, f) != (unsigned int)_size) {
+		err = EBADF;
+		goto free;
+	}
+
+	close_file(path, f);
+
+	*data = buf;
+	*size = (unsigned int)_size;
+
+	return 0;
+
+free:
+	free(buf);
+close:
+	close_file(path, f);
+	errno = err;
+	return -1;
+}
+
+static int _file_read_key_value(char *path, char op, char *key, char *value)
+{
+	int fd;
+	int size;
+	int len;
+	char *data;
+	char *msg;
+	char *end, *start;
+
+	if (!key || !path) {
+		errno = EINVAL;
+		return -errno;
+	}
+
+	if (op != 'l' && op != 'r') {
+		errno = EINVAL;
+		return -errno;
+	}
+
+	size = get_file_size(path);
+	if (size < 0)
+		return size;
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0)
+		return -errno;
+
+	data = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+	if (data == MAP_FAILED)
+		goto close;
+
+	if (op == 'l')
+		msg = strstr(data, key);
+	else if (op == 'r')
+		msg = strrstr(data, key);
+	if (!msg) {
+		errno = ENOMSG;
+		goto unmap;
+	}
+	end = strchr(msg, '\n');
+	if (end == NULL)
+		end = data + size;
+
+	start = msg + strlen(key);
+	len = end - start;
+	memcpy(value, start, len);
+	*(value + len) = 0;
+
+	munmap(data, size);
+	close(fd);
+
+	return len;
+
+unmap:
+	munmap(data, size);
+close:
+	close(fd);
+	return -errno;
+}
+
+int file_read_key_value(char *path, char *key, char *value)
+{
+	return _file_read_key_value(path, 'l', key, value);
+}
+
+int file_read_key_value_r(char *path, char *key, char *value)
+{
+	return _file_read_key_value(path, 'r', key, value);
+}
+
+int dir_contains(const char *dir, const char *filename, int exact,
+		char *fullname)
+{
+	int ret, count = 0;
+	struct dirent **filelist;
+	char *name;
+
+	if (!dir || !filename)
+		return -EINVAL;
+
+	ret = scandir(dir, &filelist, 0, 0);
+	if (ret < 0)
+		return -errno;
+
+	while (ret--) {
+		name = filelist[ret]->d_name;
+		if (exact) {
+			if (!strcmp(name, filename))
+				count++;
+		} else {
+			if (strstr(name, filename)) {
+				count++;
+				if (fullname)
+					strcpy(fullname, name);
+			}
+		}
+		free(filelist[ret]);
+	}
+
+	free(filelist);
+
+	return count;
+}
+
+int lsdir(const char *dir, char *fullname[], int limit)
+{
+	int ret, num, count = 0;
+	int i;
+	struct dirent **filelist;
+	char *name;
+
+	if (!dir || !fullname)
+		return -EINVAL;
+
+	num = scandir(dir, &filelist, 0, 0);
+	if (num < 0)
+		return -errno;
+	if (num > limit) {
+		LOGE("(%s) contains (%d) files, meet limit (%d)\n",
+		     dir, num, limit);
+		count = -EINVAL;
+		goto free_list;
+	}
+
+	for (i = 0; i < num; i++) {
+		name = filelist[i]->d_name;
+		ret = asprintf(&fullname[count++], "%s/%s", dir, name);
+		if (ret < 0) {
+			LOGE("compute string failed, out of memory\n");
+			count = -ENOMEM;
+			goto free_fname;
+		}
+	}
+
+	for (i = 0; i < num; i++)
+		free(filelist[i]);
+	free(filelist);
+
+	return count;
+
+free_fname:
+	for (i = 0; i < count; i++)
+		free(fullname[i]);
+
+free_list:
+	for (i = 0; i < num; i++)
+		free(filelist[i]);
+	free(filelist);
+
+	return count;
+}
+
+static void expand_dir(char *_dirs[], int *count, int depth, int max_depth)
+{
+	char *_files[MAX_DIR_FILES];
+	int files;
+	int i = 0;
+
+	if (depth > max_depth)
+		return;
+
+	files = lsdir(_dirs[*count - 1], _files, MAX_DIR_FILES);
+	if (files < 0) {
+		LOGE("lsdir failed, error (%s)\n", strerror(-files));
+		return;
+	} else if (files == 2) {
+		goto free;
+	}
+
+	for (i = 0; i < files; i++) {
+		if (directory_exists(_files[i]) && !strstr(_files[i], "/..")
+		    && !strstr(_files[i], "/.")) {
+			if (*count >= MAX_SEARCH_DIRS) {
+				LOGE("too many dirs(%d) under %s\n",
+				     *count, _dirs[0]);
+				goto free;
+			}
+
+			_dirs[(*count)++] = _files[i];
+			expand_dir(_dirs, count, depth++, max_depth);
+		} else {
+			free(_files[i]);
+		}
+	}
+
+	return;
+
+free:
+	for (; i < files; i++)
+		free(_files[i]);
+}
+
+/**
+ * Find target file in specified dir.
+ *
+ * @param dir Where to start search.
+ * @param target_file Target file to search.
+ * @param depth File's depth in the directory tree.
+ * @param path[out] Searched file path in given dir.
+ * @param limit The number of files uplayer want to get.
+ *
+ * @return the count of searched files if successful, or a negative
+ *	   errno-style value if not.
+ */
+int find_file(char *dir, char *target_file, int depth, char *path[], int limit)
+{
+	int i, ret;
+	int count = 0;
+	char *_dirs[MAX_SEARCH_DIRS];
+	int dirs;
+
+	if (depth < 1 || !dir || !target_file || !path || limit <= 0)
+		return -EINVAL;
+
+	ret = asprintf(&_dirs[0], "%s", dir);
+	if (ret < 0) {
+		LOGE("compute string failed, out of memory\n");
+		return -ENOMEM;
+	}
+	dirs = 1;
+
+	/* expand all dirs */
+	expand_dir(_dirs, &dirs, 1, depth);
+	for (i = 0; i < dirs; i++) {
+		if (count >= limit)
+			goto free;
+
+		ret = dir_contains(_dirs[i], target_file, 1, NULL);
+		if (ret == 1) {
+			ret = asprintf(&path[count++], "%s/%s",
+				       _dirs[i], target_file);
+			if (ret < 0) {
+				LOGE("compute string failed, out of memory\n");
+				ret = -ENOMEM;
+				goto fail;
+			}
+		} else if (ret > 1) {
+			LOGE("found (%d) (%s) under (%s)??\n",
+			     ret, target_file, dir);
+		} else if (ret < 0) {
+			LOGE("dir_contains failed, error (%s)\n",
+			     strerror(-ret));
+		}
+	}
+
+free:
+	for (i = 0; i < dirs; i++)
+		free(_dirs[i]);
+
+	return count;
+fail:
+	for (i = 0; i < dirs; i++)
+		free(_dirs[i]);
+
+	for (i = 0; i < count; i++)
+		free(path[i]);
+
+	return ret;
+}
