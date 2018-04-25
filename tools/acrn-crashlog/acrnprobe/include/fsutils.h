@@ -23,6 +23,25 @@
 #define __FSUTILS_H__
 
 #include <sys/stat.h>
+#include <dirent.h>
+#include <stdio.h>
+#include <errno.h>
+
+#define MAX(a, b)                (((a) > (b)) ? (a) : (b))
+#define MIN(a, b)                (((a) > (b)) ? (b) : (a))
+
+#define KB                      (1024)
+#define MB                      (KB * KB)
+#define MAXLINESIZE             (4 * KB)
+#define CPBUFFERSIZE            (4 * KB)
+#define PAGE_SIZE               (4 * KB)
+
+struct mm_file_t {
+	char *path;
+	int fd;
+	char *begin;
+	int size;
+};
 
 static inline int file_exists(const char *filename)
 {
@@ -30,5 +49,57 @@ static inline int file_exists(const char *filename)
 
 	return (stat(filename, &info) == 0);
 }
+
+static inline int directory_exists(char *path)
+{
+	struct stat info;
+
+	return (stat(path, &info) == 0 && S_ISDIR(info.st_mode));
+}
+
+static inline int dir_exists(const char *dirpath)
+{
+	DIR *dir;
+
+	dir = opendir(dirpath);
+	if (dir != NULL) {
+		closedir(dir);
+		return 1;
+	} else {
+		return 0;
+	}
+}
+
+static inline int get_file_size(const char *filepath)
+{
+	struct stat info;
+
+	if (filepath == NULL)
+		return -ENOENT;
+
+	if (stat(filepath, &info) < 0)
+		return -errno;
+
+	return info.st_size;
+}
+
+char *mm_get_line(struct mm_file_t *mfile, int line);
+int mkdir_p(char *path);
+int mm_count_lines(struct mm_file_t *mfile);
+struct mm_file_t *mmap_file(const char *path);
+void unmap_file(struct mm_file_t *mfile);
+int do_copy_tail(char *src, char *dest, int limit);
+int do_mv(char *src, char *dest);
+int append_file(char *filename, char *text);
+int mm_replace_str_line(struct mm_file_t *mfile, char *replace,
+			int line);
+int replace_file_head(char *filename, char *text);
+int overwrite_file(char *filename, char *value);
+int readline(int fd, char buffer[MAXLINESIZE]);
+int file_read_string(const char *file, char *string, int size);
+void file_reset_init(const char *filename);
+int file_read_int(const char *filename, unsigned int *pcurrent);
+int file_update_int(const char *filename, unsigned int current,
+			unsigned int max);
 
 #endif

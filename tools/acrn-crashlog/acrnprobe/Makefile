@@ -24,7 +24,8 @@ bin/acrnprobe: obj/main.o \
 	obj/crash_reclassify.o \
 	obj/sender.o \
 	obj/strutils.o \
-	obj/cmdutils.o
+	obj/cmdutils.o \
+	obj/fsutils.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 clean:
