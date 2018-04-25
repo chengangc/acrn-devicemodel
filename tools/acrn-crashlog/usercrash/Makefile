@@ -1,15 +1,19 @@
 all: check_obj debugger usercrashd
 
+CURRDIR := $(shell pwd)
+INCLUDE += -I $(CURRDIR)/include/
+
 LIBS = -levent -lpthread
 
-usercrashd: obj/usercrashd.o
+usercrashd: obj/protocol.o obj/usercrashd.o $(CURRDIR)/../common/obj/log_sys.o
 	$(CC) -g $(CFLAGS) $(LIBS) $(INCLUDE) $^ -o obj/bin/$@ -lsystemd
 
-debugger: obj/debugger.o
+debugger: obj/protocol.o obj/debugger.o $(CURRDIR)/../common/obj/log_sys.o
 	$(CC) -g $(CFLAGS) $(INCLUDE) $^ -o obj/bin/$@ -lsystemd
 
 obj/%.o:%.c
 	$(CC) $(CFLAGS) $(INCLUDE) -o $@ -c $<
+
 
 check_obj:
 	@if [ ! -d obj/bin ]; then \
