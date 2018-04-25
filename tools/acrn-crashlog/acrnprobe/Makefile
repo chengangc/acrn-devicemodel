@@ -1,6 +1,7 @@
 BASEDIR 	:= $(shell pwd)
 
 LIBS		= -lpthread -lxml2 -lcrypto -lrt -lsystemd -ltelemetry
+INCLUDE    	+= -I $(BASEDIR)/include
 CFLAGS 		+= $(INCLUDE)
 CFLAGS 		+= -g -O0 -std=gnu11
 CFLAGS 		+= -ffunction-sections -fdata-sections
@@ -14,7 +15,14 @@ all: check_dirs $(TARGET)
 obj/%.o:%.c
 	$(CC) -c $(CFLAGS) $< -o $@
 
-bin/acrnprobe: obj/main.o
+bin/acrnprobe: obj/main.o \
+	$(BASEDIR)/../common/obj/log_sys.o \
+	obj/load_conf.o \
+	obj/channels.o \
+	obj/event.o \
+	obj/event_handler.o \
+	obj/crash_reclassify.o \
+	obj/sender.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 clean:
