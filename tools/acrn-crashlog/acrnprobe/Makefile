@@ -27,7 +27,8 @@ bin/acrnprobe: obj/main.o \
 	obj/cmdutils.o \
 	obj/fsutils.o \
 	obj/crash_time.o \
-	obj/startupreason.o
+	obj/startupreason.o \
+	obj/property.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 clean:
