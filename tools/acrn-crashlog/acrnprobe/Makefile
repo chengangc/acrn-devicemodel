@@ -30,7 +30,8 @@ bin/acrnprobe: obj/main.o \
 	obj/startupreason.o \
 	obj/property.o \
 	obj/crashutils.o \
-	obj/history.o
+	obj/history.o \
+	obj/vm_history.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 clean:
