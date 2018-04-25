@@ -8,7 +8,8 @@ LIBS = -levent -lpthread
 usercrashd: obj/protocol.o obj/usercrashd.o $(CURRDIR)/../common/obj/log_sys.o
 	$(CC) -g $(CFLAGS) $(LIBS) $(INCLUDE) $^ -o obj/bin/$@ -lsystemd
 
-debugger: obj/protocol.o obj/debugger.o $(CURRDIR)/../common/obj/log_sys.o
+debugger: obj/protocol.o obj/client.o obj/crash_dump.o obj/debugger.o \
+		$(CURRDIR)/../common/obj/log_sys.o
 	$(CC) -g $(CFLAGS) $(INCLUDE) $^ -o obj/bin/$@ -lsystemd
 
 obj/%.o:%.c
