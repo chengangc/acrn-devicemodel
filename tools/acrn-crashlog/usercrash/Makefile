@@ -33,3 +33,23 @@ clean:
 	@if [ -d obj ]; then \
 		$(RM) -r obj ; \
 	fi
+
+.PHONY:install
+install:
+	@install -d $(DESTDIR)/usr/bin/
+	@install -p -D -m 0755 obj/bin/debugger $(DESTDIR)/usr/bin/
+	@install -p -D -m 0755 obj/bin/usercrashd $(DESTDIR)/usr/bin/
+	@install -d $(DESTDIR)/usr/lib/systemd/system/
+	@install -p -D -m 0755 usercrash.service $(DESTDIR)/usr/lib/systemd/system/
+
+.PHONY:uninstall
+uninstall:
+	@if [ -e "$(DESTDIR)/usr/bin/debugger" ];then \
+		$(RM) $(DESTDIR)/usr/bin/debugger; \
+	fi
+	@if [ -e "$(DESTDIR)/usr/bin/usercrashd" ];then \
+		$(RM) $(DESTDIR)/usr/bin/usercrashd; \
+	fi
+	@if [ -e "$(DESTDIR)/usr/lib/systemd/system/usercrash.service" ];then \
+		$(RM) $(DESTDIR)/usr/lib/systemd/system/usercrash.service; \
+	fi
