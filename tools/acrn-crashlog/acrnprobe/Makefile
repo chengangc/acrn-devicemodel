@@ -53,3 +53,32 @@ check_dirs:
 	@if [ ! -d obj ]; then \
 		mkdir obj ; \
 	fi
+
+.PHONY:install
+install:
+	@install -d $(DESTDIR)/usr/bin/
+	@install -p -D -m 0755 bin/acrnprobe $(DESTDIR)/usr/bin/
+	@install -p -D -m 0755 acrnprobe_prepare.sh $(DESTDIR)/usr/bin/
+	@install -d $(DESTDIR)/usr/share/defaults/telemetrics/
+	@install -p -D -m 0755 acrnprobe.xml $(DESTDIR)/usr/share/defaults/telemetrics/
+	@install -d $(DESTDIR)/usr/lib/systemd/system/
+	@install -p -D -m 0755 acrnprobe.service $(DESTDIR)/usr/lib/systemd/system/
+	@install -p -D -m 0755 prepare.service $(DESTDIR)/usr/lib/systemd/system/
+
+.PHONY:uninstall
+uninstall:
+	@if [ -e "$(DESTDIR)/usr/bin/acrnprobe" ];then \
+		$(RM) $(DESTDIR)/usr/bin/acrnprobe; \
+	fi
+	@if [ -e "$(DESTDIR)/etc/acrnprobe.xml" ];then \
+		$(RM) $(DESTDIR)/etc/acrnprobe.xml; \
+	fi
+	@if [ -e "$(DESTDIR)/usr/lib/systemd/system/acrnprobe.service" ];then \
+		$(RM) $(DESTDIR)/usr/lib/systemd/system/acrnprobe.service; \
+	fi
+	@if [ -e "$(DESTDIR)/usr/lib/systemd/system/prepare.service" ];then \
+		$(RM) $(DESTDIR)/usr/lib/systemd/system/prepare.service; \
+	fi
+	@if [ -e "$(DESTDIR)/usr/local/bin/acrnprobe_prepare.sh" ];then \
+		$(RM) $(DESTDIR)/usr/local/bin/acrnprobe_prepare.sh; \
+	fi
